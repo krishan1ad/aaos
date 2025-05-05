@@ -8,6 +8,9 @@ import android.os.Looper
 import android.os.IBinder
 import android.os.Message
 import android.os.Messenger
+import android.os.Build
+import android.annotation.SuppressLint
+import android.util.Log
 import androidx.core.app.NotificationChannelCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationCompat.CarExtender
@@ -52,29 +55,24 @@ class MyMessagingService : Service() {
         participant: String,
         timestamp: Long
     ) {
-        // A pending Intent for reads
         val readPendingIntent = PendingIntent.getBroadcast(
             applicationContext,
             conversationId,
             createIntent(conversationId, READ_ACTION),
-            PendingIntent.FLAG_UPDATE_CURRENT
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // Build a RemoteInput for receiving voice input in a Car Notification
         val remoteInput = RemoteInput.Builder(EXTRA_VOICE_REPLY)
             .setLabel("Reply by voice")
             .build()
 
-        // Building a Pending Intent for the reply action to trigger
         val replyIntent = PendingIntent.getBroadcast(
             applicationContext,
             conversationId,
             createIntent(conversationId, REPLY_ACTION),
-            PendingIntent.FLAG_UPDATE_CURRENT
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // Create the UnreadConversation and populate it with the participant name,
-        // read and reply intents.
         val unreadConversationBuilder = UnreadConversation.Builder(participant)
             .setLatestTimestamp(timestamp)
             .setReadPendingIntent(readPendingIntent)
@@ -84,15 +82,11 @@ class MyMessagingService : Service() {
             .Builder(CHANNEL_ID, NotificationManagerCompat.IMPORTANCE_DEFAULT)
             .setName(resources.getText(R.string.app_name))
             .build()
-        NotificationManagerCompat.from(applicationContext).createNotificationChannel(channel)
+        mNotificationManager.createNotificationChannel(channel)
 
         val builder = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
-            // Set the application notification icon:
             //.setSmallIcon(R.drawable.notification_icon)
-
-            // Set the large icon, for example a picture of the other recipient of the message
             //.setLargeIcon(personBitmap)
-
             .setContentText(message)
             .setWhen(timestamp)
             .setContentTitle(participant)
@@ -102,12 +96,20 @@ class MyMessagingService : Service() {
                     .setUnreadConversation(unreadConversationBuilder.build())
             )
 
-        mNotificationManager.notify(conversationId, builder.build())
+        showNotification(conversationId, builder)
     }
 
-    /**
-     * Handler of incoming messages from clients.
-     */
+    @SuppressLint("MissingPermission") // Safe because we check permission status first
+    private fun showNotification(conversationId: Int, builder: NotificationCompat.Builder) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            mNotificationManager.areNotificationsEnabled()
+        ) {
+            mNotificationManager.notify(conversationId, builder.build())
+        } else {
+            Log.w("MyMessagingService", "Notification skipped: POST_NOTIFICATIONS permission not granted.")
+        }
+    }
+
     internal inner class IncomingHandler : Handler(Looper.myLooper()!!) {
         override fun handleMessage(msg: Message) {
             sendNotification(1, "This is a sample message", "John Doe", System.currentTimeMillis())
